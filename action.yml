@@ -1,0 +1,104 @@
+name: 'ADA HTML Element Accessibility Scanner'
+description: 'Scans HTML/TSX/JSX files for WCAG 2.1 AA accessibility violations on pure HTML elements. No browser required.'
+
+inputs:
+  scan-paths:
+    description: 'Space-separated list of files or glob patterns to scan. If empty, scans changed files in the PR/push.'
+    required: false
+    default: ''
+  report:
+    description: 'Write a JSON report file (accessibility-html-element-report.json)'
+    required: false
+    default: 'true'
+  fail-on-violations:
+    description: 'Fail the step if violations are found'
+    required: false
+    default: 'true'
+
+outputs:
+  total-violations:
+    description: 'Total number of WCAG rule violations found'
+    value: ${{ steps.scan.outputs.total-violations }}
+  files-with-violations:
+    description: 'Number of files with at least one violation'
+    value: ${{ steps.scan.outputs.files-with-violations }}
+  files-scanned:
+    description: 'Total number of files scanned'
+    value: ${{ steps.scan.outputs.files-scanned }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install & compile scanner
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        npm ci --ignore-scripts
+        npm run compile
+
+    - name: Determine files to scan
+      id: files
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.scan-paths }}" ]; then
+          echo "${{ inputs.scan-paths }}" | tr ' ' '\n' > /tmp/ada-scan-files.txt
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        else
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" HEAD -- \
+            '*.html' '*.htm' '*.tsx' '*.jsx' 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo "No HTML/TSX/JSX files changed."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$FILES" > /tmp/ada-scan-files.txt
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        fi
+
+    - name: Run ADA HTML Element Scanner
+      id: scan
+      if: steps.files.outputs.skip != 'true'
+      shell: bash
+      run: |
+        FILES=$(cat /tmp/ada-scan-files.txt | tr '\n' ' ')
+        ARGS=""
+        if [ "${{ inputs.report }}" = "true" ]; then
+          ARGS="--report"
+        fi
+
+        set +e
+        node ${{ github.action_path }}/out/cli/htmlElementScanCli.js $ARGS $FILES 2>&1 | tee /tmp/ada-scan-output.txt
+        EXIT_CODE=$?
+        set -e
+
+        # Parse counts from CLI output
+        TOTAL=$(grep -oP 'Total rules violated:\s+\K\d+' /tmp/ada-scan-output.txt || echo "0")
+        WITH_V=$(grep -oP 'Files with violations:\s+\K\d+' /tmp/ada-scan-output.txt || echo "0")
+        SCANNED=$(grep -oP 'Files scanned:\s+\K\d+' /tmp/ada-scan-output.txt || echo "0")
+
+        echo "total-violations=$TOTAL" >> "$GITHUB_OUTPUT"
+        echo "files-with-violations=$WITH_V" >> "$GITHUB_OUTPUT"
+        echo "files-scanned=$SCANNED" >> "$GITHUB_OUTPUT"
+
+        if [ "${{ inputs.fail-on-violations }}" = "true" ]; then
+          exit $EXIT_CODE
+        fi
+
+    - name: Set zero outputs when skipped
+      if: steps.files.outputs.skip == 'true'
+      id: scan-skip
+      shell: bash
+      run: |
+        echo "total-violations=0" >> "$GITHUB_OUTPUT"
+        echo "files-with-violations=0" >> "$GITHUB_OUTPUT"
+        echo "files-scanned=0" >> "$GITHUB_OUTPUT"

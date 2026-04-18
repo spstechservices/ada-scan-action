@@ -1,0 +1,15 @@
+{
+  "name": "ada-scan-action",
+  "version": "1.0.0",
+  "description": "ADA HTML Element Accessibility Scanner — GitHub Action",
+  "private": true,
+  "main": "out/cli/htmlElementScanCli.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

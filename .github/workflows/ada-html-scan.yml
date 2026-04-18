@@ -1,0 +1,64 @@
+# ═══════════════════════════════════════════════════════════
+# Reusable Workflow — ADA HTML Element Accessibility Scan
+# ═══════════════════════════════════════════════════════════
+#
+# Any repo in the org can call this with:
+#
+#   jobs:
+#     ada-scan:
+#       uses: spstechservices/ada-scan-action/.github/workflows/ada-html-scan.yml@main
+#
+# ═══════════════════════════════════════════════════════════
+
+name: ADA HTML Element Accessibility Scan
+
+on:
+  workflow_call:
+    inputs:
+      scan-paths:
+        description: 'Space-separated file paths to scan. If empty, scans changed files only.'
+        type: string
+        required: false
+        default: ''
+      node-version:
+        description: 'Node.js version to use'
+        type: string
+        required: false
+        default: '20'
+    outputs:
+      total-violations:
+        description: 'Total WCAG rule violations found'
+        value: ${{ jobs.scan.outputs.total-violations }}
+      files-with-violations:
+        description: 'Number of files with violations'
+        value: ${{ jobs.scan.outputs.files-with-violations }}
+
+jobs:
+  scan:
+    name: Scan HTML elements for WCAG violations
+    runs-on: ubuntu-latest
+    outputs:
+      total-violations: ${{ steps.run-scan.outputs.total-violations }}
+      files-with-violations: ${{ steps.run-scan.outputs.files-with-violations }}
+
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run ADA HTML Element Scanner
+        id: run-scan
+        uses: spstechservices/ada-scan-action@main
+        with:
+          scan-paths: ${{ inputs.scan-paths }}
+          report: 'true'
+          fail-on-violations: 'true'
+
+      - name: Upload accessibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-html-element-report
+          path: accessibility-html-element-report.json
+          if-no-files-found: ignore
